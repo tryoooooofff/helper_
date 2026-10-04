@@ -251,7 +251,7 @@
         <span class="dc">◧ <b id="stDC">0</b><br><span class="sub">draw calls <span id="stBaked">(1 baked)</span></span></span>
         <span class="pt"> <b id="stParts">0</b><br><span class="sub">parts</span></span>
       </div>
-      <div id="hudHint">Drag parts here · click a part to select · drag a part to move it · scroll to zoom · right-drag to pan</div>
+      <div id="hudHint">Drag parts here · drag selected parts horizontally or vertically · yellow lines mark the origin · right-drag to pan</div>
     </div>
     <div id="selectedTag" style="display:none"></div>
   </main>
@@ -4840,6 +4840,20 @@ disc.position.y = -0.002;
 floor.add(disc);
 scene.add(floor);
 
+// Alignment guides: a clear origin crosshair plus a vertical center line.
+const guides = new THREE.Group();
+const guideMaterial = new THREE.LineBasicMaterial({ color: 0xffb703, transparent: true, opacity: 0.78 });
+const axisMaterial = new THREE.LineBasicMaterial({ color: 0x6ba8ff, transparent: true, opacity: 0.58 });
+function guideLine(points, material) {
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const line = new THREE.Line(geometry, material);
+  guides.add(line);
+}
+guideLine([new THREE.Vector3(-6, 0.012, 0), new THREE.Vector3(6, 0.012, 0)], guideMaterial);
+guideLine([new THREE.Vector3(0, 0.014, -6), new THREE.Vector3(0, 0.014, 6)], guideMaterial);
+guideLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0)], axisMaterial);
+scene.add(guides);
+
 const partRoot = new THREE.Group();
 scene.add(partRoot);
 const nodeById = new Map(); // id -> { mesh, mat }
@@ -5101,7 +5115,7 @@ canvas.addEventListener("pointerdown", (ev) => {
     const p = selectedPart();
     drag = {
       mode: "part", id,
-      plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -p.pos[1]),
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), new THREE.Vector3().fromArray(p.pos)),
       offset: hit.point.clone().sub(new THREE.Vector3().fromArray(p.pos)),
       moved: false,
     };
@@ -5154,7 +5168,8 @@ canvas.addEventListener("pointerup", (ev) => {
 });
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
-  orbit.radius = THREE.MathUtils.clamp(orbit.radius * Math.pow(1.0015, ev.deltaY), 1.2, 18);
+  // Keep camera distance stable while adjusting the view; wheel no longer changes model scale.
+  orbit.theta -= ev.deltaY * 0.002;
   applyCamera();
 }, { passive: false });
 
