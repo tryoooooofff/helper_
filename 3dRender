@@ -124,15 +124,49 @@
   #hudHint {
     background: rgba(20, 23, 28, .7); border: 1px solid var(--line);
     border-radius: 10px; padding: 7px 11px; color: var(--dim); font-size: 11px;
-    max-width: 340px;
+    max-width: 360px;
   }
+  #hudHint b { color: var(--text); font-weight: 600; }
   #selectedTag {
     position: absolute; bottom: 12px; left: 12px; z-index: 5;
     background: rgba(20, 23, 28, .82); border: 1px solid var(--accent);
     color: var(--text); border-radius: 10px; padding: 7px 12px; font-size: 12px;
-    pointer-events: none;
+    pointer-events: none; font-variant-numeric: tabular-nums;
   }
   #selectedTag b { color: var(--accent); }
+  #selectedTag .sym { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--line); }
+  #selectedTag .sym.ok { color: var(--ok); }
+  #selectedTag .sym.off { color: var(--dim); }
+
+  /* guides & snapping */
+  .chk {
+    display: flex; align-items: center; gap: 7px; margin: 6px 0;
+    color: var(--dim); font-size: 12px; cursor: pointer; user-select: none;
+  }
+  .chk:hover { color: var(--text); }
+  .chk input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+  .chk .dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .inline { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .inline select { flex: 1; }
+  .inline > span { color: var(--dim); font-size: 11px; white-space: nowrap; }
+
+  /* viewport camera toolbar */
+  #viewTools {
+    position: absolute; right: 12px; bottom: 12px; z-index: 6;
+    display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+  }
+  .vgroup {
+    display: flex; gap: 3px; padding: 4px; border-radius: 10px;
+    background: rgba(20, 23, 28, .86); border: 1px solid var(--line);
+    backdrop-filter: blur(4px);
+  }
+  .vgroup button {
+    min-width: 32px; padding: 5px 7px; font-size: 11px; border-radius: 7px;
+    background: transparent; border: 1px solid transparent; color: var(--dim);
+  }
+  .vgroup button:hover { background: var(--panel2); color: var(--text); border-color: var(--line); }
+  .vgroup button.on { background: var(--accent); border-color: var(--accent); color: #201800; font-weight: 700; }
+  .vgroup .lbl { color: var(--dim); font-size: 10px; align-self: center; padding: 0 4px; letter-spacing: .4px; }
 
   /* drag ghost */
   #ghost {
@@ -218,7 +252,7 @@
       <div id="tEmpty">Select a part to move, rotate and scale it.</div>
       <div id="tPanel" style="display:none">
         <div class="slider"><span class="ax x">X</span><input type="range" id="px" min="-5" max="5" step="0.01"><span class="val" id="pxv"></span></div>
-        <div class="slider"><span class="ax y">Y</span><input type="range" id="py" min="0" max="5" step="0.01"><span class="val" id="pyv"></span></div>
+        <div class="slider" title="Height — move the part up and down"><span class="ax y">Y</span><input type="range" id="py" min="-2" max="5" step="0.01"><span class="val" id="pyv"></span></div>
         <div class="slider"><span class="ax z">Z</span><input type="range" id="pz" min="-5" max="5" step="0.01"><span class="val" id="pzv"></span></div>
         <div class="slider"><span class="ax x">RX</span><input type="range" id="rx" min="-180" max="180" step="1"><span class="val" id="rxv"></span></div>
         <div class="slider"><span class="ax y">RY</span><input type="range" id="ry" min="-180" max="180" step="1"><span class="val" id="ryv"></span></div>
@@ -231,10 +265,37 @@
           <div class="slider"><span class="ax">T</span><input type="range" id="hTaper" min="0.05" max="1.5" step="0.01"><span class="val" id="hTaperv"></span></div>
         </div>
         <div class="row" style="margin-top:10px">
+          <button id="mirrorBtn" style="font-size:12px; padding:8px 4px" title="Drop a mirrored twin on the other side of the centre line (x → −x)">⇋ Mirror</button>
+          <button id="centreBtn" style="font-size:12px; padding:8px 4px" title="Put this part exactly on the centre line (x = 0)">⌖ Centre</button>
+          <button id="groundBtn" style="font-size:12px; padding:8px 4px" title="Rest this part on the ground (y so it just touches)">⇩ Ground</button>
+        </div>
+        <div class="row" style="margin-top:8px">
           <button id="dupBtn">⧉ Duplicate</button>
           <button id="delBtn" class="danger">✕ Delete</button>
         </div>
+        <div class="hint">↑↓←→ nudge · Shift+↑↓ (or PgUp/PgDn) changes height · hold Alt for fine steps.</div>
       </div>
+    </section>
+
+    <section>
+      <h2>Guides &amp; snapping</h2>
+      <label class="chk" title="The X / Y / Z datum lines through the origin"><input type="checkbox" id="gAxes" checked><span class="dot" style="background:#59d189"></span>Centre lines (X · Y · Z)</label>
+      <label class="chk" title="The x = 0 mirror plane — parts either side of it should match"><input type="checkbox" id="gSym" checked><span class="dot" style="background:#4d9fff"></span>Symmetry plane (x = 0)</label>
+      <label class="chk" title="Height line, ground cross and alignment rails for the selected part"><input type="checkbox" id="gPart" checked><span class="dot" style="background:#ffb703"></span>Guides on selected part</label>
+      <label class="chk" title="Shows where the mirrored twin of the selection would sit"><input type="checkbox" id="gMirror" checked><span class="dot" style="background:#4d9fff"></span>Mirror preview</label>
+      <label class="chk"><input type="checkbox" id="gGrid" checked><span class="dot" style="background:#39414f"></span>Ground grid</label>
+      <div class="inline">
+        <span>Snap to</span>
+        <select id="snapSel">
+          <option value="0">off (free)</option>
+          <option value="0.01">0.01</option>
+          <option value="0.05" selected>0.05</option>
+          <option value="0.1">0.1</option>
+          <option value="0.25">0.25</option>
+        </select>
+      </div>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="snapCentre" checked>Magnet to the centre line</label>
+      <div class="hint">Front view + centre line is the fastest symmetry check: a part and its mirror should sit the same distance either side.</div>
     </section>
 
     <section>
@@ -251,7 +312,26 @@
         <span class="dc">◧ <b id="stDC">0</b><br><span class="sub">draw calls <span id="stBaked">(1 baked)</span></span></span>
         <span class="pt"> <b id="stParts">0</b><br><span class="sub">parts</span></span>
       </div>
-      <div id="hudHint">Drag parts here · click a part to select · drag a part to move it · scroll to zoom · right-drag to pan</div>
+      <div id="hudHint">Drag a part = slide along the floor · <b>Shift-drag or pull the green ↕ arrow = up / down</b> · drag empty space to turn · right-drag to pan · scroll to zoom</div>
+    </div>
+    <div id="viewTools">
+      <div class="vgroup">
+        <span class="lbl">VIEW</span>
+        <button id="vFront" title="Front — best for checking left/right symmetry (1)">Front</button>
+        <button id="vBack" title="Back (2)">Back</button>
+        <button id="vLeft" title="Left (3)">Left</button>
+        <button id="vRight" title="Right (4)">Right</button>
+        <button id="vTop" title="Top (5)">Top</button>
+        <button id="vIso" title="Three-quarter view (6)">3D</button>
+      </div>
+      <div class="vgroup">
+        <span class="lbl">CAMERA</span>
+        <button id="projOrtho" class="on" title="Orthographic — turning the view never changes how big parts look (O)">Ortho</button>
+        <button id="projPersp" title="Perspective — nearer parts look bigger (P)">Persp</button>
+        <button id="zoomOut" title="Zoom out">−</button>
+        <button id="zoomIn" title="Zoom in">+</button>
+        <button id="vFit" title="Frame the whole model (F)">Fit</button>
+      </div>
     </div>
     <div id="selectedTag" style="display:none"></div>
   </main>
@@ -4814,7 +4894,15 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1f27);
 scene.fog = new THREE.Fog(0x1a1f27, 14, 30);
 
-const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
+// Two cameras share one orbit rig. Orthographic is the default: with it a part
+// is exactly the same size on screen no matter how you turn or move the view,
+// which is what makes eyeballing symmetry and alignment possible.
+const FOV = 45;
+const perspCam = new THREE.PerspectiveCamera(FOV, 1, 0.05, 200);
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -200, 400);
+let camera = orthoCam;
+let projection = "ortho";
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 el.viewport.appendChild(renderer.domElement);
@@ -4843,7 +4931,154 @@ scene.add(floor);
 const partRoot = new THREE.Group();
 scene.add(partRoot);
 const nodeById = new Map(); // id -> { mesh, mat }
-let selHelper = null;
+
+/* ---------------- datum lines, symmetry plane, part guides ----------------
+   Everything in here is drawing only — it never ends up in the exported model.
+   The centre lines and the x = 0 plane are the references you line parts up
+   against; the per-part guides say where the selection sits in relation to them.
+-------------------------------------------------------------------------- */
+const show = { axes: true, sym: true, part: true, mirror: true, grid: true };
+let snapStep = 0.05;      // 0 = free movement
+let snapCentre = true;    // magnet onto x = 0
+
+const guides = new THREE.Group();
+scene.add(guides);
+
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+function lineMat(color, opacity, dashed) {
+  const o = { color, transparent: true, opacity, depthTest: false, depthWrite: false, toneMapped: false };
+  return dashed ? new THREE.LineDashedMaterial({ ...o, dashSize: 0.1, gapSize: 0.07 })
+                : new THREE.LineBasicMaterial(o);
+}
+function staticLine(a, b, color, opacity, dashed) {
+  const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), lineMat(color, opacity, dashed));
+  if (dashed) l.computeLineDistances();
+  l.renderOrder = 3;
+  return l;
+}
+function dynLine(color, opacity, dashed) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(6), 3));
+  const l = new THREE.Line(g, lineMat(color, opacity, dashed));
+  l.renderOrder = 4;
+  l.frustumCulled = false;
+  return l;
+}
+function setLine(l, a, b) {
+  const p = l.geometry.attributes.position;
+  p.setXYZ(0, a.x, a.y, a.z);
+  p.setXYZ(1, b.x, b.y, b.z);
+  p.needsUpdate = true;
+  if (l.material.isLineDashedMaterial) l.computeLineDistances();
+}
+
+const AXIS_COL = { x: 0xff6b57, y: 0x59d189, z: 0x4d9fff };
+
+// world datum lines through the origin (visible straight through the model)
+const axisGroup = new THREE.Group();
+axisGroup.add(staticLine(V(-6, 0.002, 0), V(6, 0.002, 0), AXIS_COL.x, 0.55));  // X — left / right
+axisGroup.add(staticLine(V(0, 0.002, -6), V(0, 0.002, 6), AXIS_COL.z, 0.55));  // Z — front / back
+axisGroup.add(staticLine(V(0, 0, 0), V(0, 5, 0), AXIS_COL.y, 0.4));            // Y — the centre mast
+guides.add(axisGroup);
+
+// the x = 0 mirror plane, drawn as a faint ruled sheet
+const symGroup = new THREE.Group();
+{
+  const sheet = new THREE.Mesh(
+    new THREE.PlaneGeometry(12, 5),
+    new THREE.MeshBasicMaterial({ color: 0x4d9fff, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  sheet.rotation.y = Math.PI / 2;
+  sheet.position.y = 2.5;
+  symGroup.add(sheet);
+  const pts = [];
+  for (let y = 0; y <= 5; y++) pts.push(V(0, y, -6), V(0, y, 6));
+  for (let z = -6; z <= 6; z++) pts.push(V(0, 0, z), V(0, 5, z));
+  symGroup.add(new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x4d9fff, transparent: true, opacity: 0.09, depthWrite: false }),
+  ));
+  guides.add(symGroup);
+}
+
+// guides that follow the selected part
+const partGuide = new THREE.Group();
+guides.add(partGuide);
+const gDrop = dynLine(0xffb703, 0.85, true);     // height line down to the floor
+const gCrossX = dynLine(0xffb703, 0.6);          // ground crosshair
+const gCrossZ = dynLine(0xffb703, 0.6);
+const gRailX = dynLine(AXIS_COL.x, 0.3);         // "everything on this line shares my height + depth"
+const gRailZ = dynLine(AXIS_COL.z, 0.3);
+partGuide.add(gDrop, gCrossX, gCrossZ, gRailX, gRailZ);
+
+// ghost of where the mirrored twin of the selection would sit
+const ghostMat = new THREE.MeshBasicMaterial({
+  color: 0x4d9fff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false,
+});
+const emptyGeo = new THREE.BufferGeometry();
+const ghostMesh = new THREE.Mesh(emptyGeo, ghostMat);
+ghostMesh.visible = false;
+ghostMesh.renderOrder = 1;
+guides.add(ghostMesh);
+
+// selection outline — lives outside partRoot so it never blocks picking
+const selBox = new THREE.BoxHelper(new THREE.Object3D(), 0xffb703);
+selBox.material.depthTest = false;
+selBox.material.transparent = true;
+selBox.renderOrder = 5;
+selBox.visible = false;
+scene.add(selBox);
+
+/* ---------------- move gizmo (drag a part along one axis, up/down included) ---------------- */
+const gizmo = new THREE.Group();
+gizmo.visible = false;
+scene.add(gizmo);
+const AXIS_DIR = { x: V(1, 0, 0), y: V(0, 1, 0), z: V(0, 0, 1) };
+const gizmoArm = {};
+for (const ax of ["x", "y", "z"]) {
+  const mat = new THREE.MeshBasicMaterial({ color: AXIS_COL[ax], transparent: true, opacity: 0.9, depthTest: false, toneMapped: false });
+  const arm = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, ax === "y" ? 1.2 : 0.6, 8), mat);
+  shaft.position.y = ax === "y" ? 0 : 0.3;
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.17, 12), mat);
+  head.position.y = ax === "y" ? 0.68 : 0.69;
+  arm.add(shaft, head);
+  if (ax === "y") {   // the height arm is double-headed, so "up and down" reads at a glance
+    const down = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.17, 12), mat);
+    down.position.y = -0.68;
+    down.rotation.z = Math.PI;
+    arm.add(down);
+  }
+  // fat invisible grab volumes — they stop short of the centre so the part
+  // itself stays clickable right under the gizmo
+  const pickMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
+  const grabs = ax === "y" ? [0.55, -0.55] : [0.55];
+  for (const at of grabs) {
+    const pick = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.62, 6), pickMat);
+    pick.position.y = at;
+    pick.userData.gizmoAxis = ax;
+    arm.add(pick);
+  }
+  for (const m of arm.children) m.renderOrder = 10;
+  if (ax === "x") arm.rotation.z = -Math.PI / 2;
+  if (ax === "z") arm.rotation.x = Math.PI / 2;
+  gizmo.add(arm);
+  gizmoArm[ax] = mat;
+}
+function setGizmoHighlight(axis) {
+  for (const ax of ["x", "y", "z"]) {
+    gizmoArm[ax].color.setHex(ax === axis ? 0xffffff : AXIS_COL[ax]);
+    gizmoArm[ax].opacity = ax === axis ? 1 : 0.9;
+  }
+}
+function updateGizmoScale() {
+  if (!gizmo.visible) return;
+  const k = 0.16;   // gizmo is ~16% of the viewport height, whatever the zoom
+  const s = camera.isOrthographicCamera
+    ? (camera.top - camera.bottom) * k
+    : 2 * camera.position.distanceTo(gizmo.position) * Math.tan(THREE.MathUtils.degToRad(FOV) / 2) * k;
+  gizmo.scale.setScalar(Math.max(0.08, s));
+}
 
 function makeMaterial(color) {
   return new THREE.MeshStandardMaterial({
@@ -4876,6 +5111,7 @@ function addNode(p) {
 function removeNode(id) {
   const node = nodeById.get(id);
   if (!node) return;
+  if (ghostMesh.geometry === node.mesh.geometry) { ghostMesh.visible = false; ghostMesh.geometry = emptyGeo; }
   partRoot.remove(node.mesh);
   node.mesh.geometry.dispose();
   node.mat.dispose();
@@ -4891,20 +5127,32 @@ function updateHullGeometry(p) {
   const g = buildGeometry(p);
   node.mesh.geometry.dispose();
   node.mesh.geometry = g;
-  if (selHelper) { selHelper.setFromObject(node.mesh); selHelper.visible = true; }
+  refreshSel();
 }
 
+function aspect() {
+  const w = el.viewport.clientWidth, h = el.viewport.clientHeight;
+  return (w && h) ? w / h : 1;
+}
 function resize() {
   const w = el.viewport.clientWidth, h = el.viewport.clientHeight;
   if (!w || !h) return;
   renderer.setSize(w, h);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+  perspCam.aspect = w / h;
+  perspCam.updateProjectionMatrix();
+  applyCamera();
 }
 new ResizeObserver(resize).observe(el.viewport);
 
-/* camera orbit (lightweight, no add-on needed) */
+/* ---------------- camera orbit (lightweight, no add-on needed) ----------------
+   orbit.radius doubles as the zoom level: in perspective it is the distance to
+   the target, in orthographic it sets the height of the frustum, so the two
+   projections always show the model at the same size and only an explicit
+   zoom (wheel / + / − / Fit) ever changes how big it looks.
+---------------------------------------------------------------------------- */
 const orbit = { theta: 0.62, phi: 1.12, radius: 4.6, target: new THREE.Vector3(0, 0.65, 0) };
+const ZOOM_MIN = 1.2, ZOOM_MAX = 18;
+function viewHeight() { return 2 * Math.tan(THREE.MathUtils.degToRad(FOV) / 2) * orbit.radius; }
 function applyCamera() {
   const { theta, phi, radius, target } = orbit;
   camera.position.set(
@@ -4912,37 +5160,167 @@ function applyCamera() {
     target.y + radius * Math.cos(phi),
     target.z + radius * Math.sin(phi) * Math.cos(theta),
   );
+  // straight-down / straight-up views need a different "up" or lookAt degenerates
+  if (phi < 0.02) camera.up.set(0, 0, -1);
+  else if (phi > Math.PI - 0.02) camera.up.set(0, 0, 1);
+  else camera.up.set(0, 1, 0);
   camera.lookAt(target);
+  // keep the distance fade relative to the zoom, so the model itself never fades
+  scene.fog.near = radius + 6;
+  scene.fog.far = radius + 24;
+  if (camera.isOrthographicCamera) {
+    const h = viewHeight(), w = h * aspect();
+    camera.left = -w / 2; camera.right = w / 2;
+    camera.top = h / 2; camera.bottom = -h / 2;
+    camera.updateProjectionMatrix();
+  }
+}
+function setProjection(mode) {
+  projection = mode;
+  camera = mode === "ortho" ? orthoCam : perspCam;
+  $("projOrtho").classList.toggle("on", mode === "ortho");
+  $("projPersp").classList.toggle("on", mode === "persp");
+  resize();
+  saveViewPrefs();
+}
+function zoomBy(f) {
+  orbit.radius = THREE.MathUtils.clamp(orbit.radius * f, ZOOM_MIN, ZOOM_MAX);
+  applyCamera();
+}
+
+/* snap-to view angles — the zoom level is deliberately left alone */
+const VIEWS = {
+  front: [0, Math.PI / 2], back: [Math.PI, Math.PI / 2],
+  right: [Math.PI / 2, Math.PI / 2], left: [-Math.PI / 2, Math.PI / 2],
+  top: [0, 0.001], iso: [0.62, 1.12],
+};
+let camTween = null;
+function setView(name) {
+  const v = VIEWS[name];
+  if (!v) return;
+  let theta = v[0];
+  while (theta - orbit.theta > Math.PI) theta -= Math.PI * 2;
+  while (orbit.theta - theta > Math.PI) theta += Math.PI * 2;
+  camTween = { t0: performance.now(), dur: 300, from: { theta: orbit.theta, phi: orbit.phi }, to: { theta, phi: v[1] } };
+}
+function stepTween(now) {
+  if (!camTween) return;
+  const k = Math.min(1, (now - camTween.t0) / camTween.dur);
+  const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+  orbit.theta = camTween.from.theta + (camTween.to.theta - camTween.from.theta) * e;
+  orbit.phi = camTween.from.phi + (camTween.to.phi - camTween.from.phi) * e;
+  applyCamera();
+  if (k >= 1) camTween = null;
+}
+function fitView() {
+  partRoot.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  let any = false;
+  for (const node of nodeById.values()) { box.expandByObject(node.mesh); any = true; }
+  if (!any || box.isEmpty()) {
+    orbit.target.set(0, 0.65, 0);
+    orbit.radius = 4.6;
+  } else {
+    orbit.target.copy(box.getCenter(new THREE.Vector3()));
+    const size = box.getSize(new THREE.Vector3());
+    const need = Math.max(size.y, size.x, size.z) * 1.45 + 0.5;
+    orbit.radius = THREE.MathUtils.clamp(need / (2 * Math.tan(THREE.MathUtils.degToRad(FOV) / 2)), ZOOM_MIN, ZOOM_MAX);
+  }
+  applyCamera();
 }
 
 /* ---------------- selection + transform UI ---------------- */
 function selectedPart() { return parts.find((p) => p.id === selectedId) || null; }
 
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
 function select(id) {
   selectedId = id;
   const p = selectedPart();
   for (const node of nodeById.values()) node.mat.emissive.setHex(0x000000);
-  if (selHelper) { selHelper.visible = false; selHelper = null; }
   if (p) {
-    const node = nodeById.get(p.id);
-    node.mat.emissive.setHex(0xffb703);
-    selHelper = new THREE.BoxHelper(node.mesh, 0xffb703);
-    partRoot.add(selHelper);
+    nodeById.get(p.id).mat.emissive.setHex(0xffb703);
     el.tEmpty.style.display = "none";
     el.tPanel.style.display = "";
     el.hullPanel.style.display = p.type === "hull" ? "" : "none";
-    el.colorTarget.innerHTML = "Colouring <b>" + p.name + "</b>";
+    el.colorTarget.innerHTML = "Colouring <b>" + esc(p.name) + "</b>";
     setColorUI(p.color);
     fillSliders(p);
-    el.selTag.style.display = "";
-    el.selTag.innerHTML = "Selected: <b>" + p.name + "</b> · drag it in the view, or use the sliders";
   } else {
     el.tEmpty.style.display = "";
     el.tPanel.style.display = "none";
     el.colorTarget.textContent = "Select a part in the 3D view first.";
-    el.selTag.style.display = "none";
   }
+  refreshSel();
   updateHUD();
+}
+
+/* ---- selection outline, move gizmo, guides and the read-out, in one go ---- */
+function refreshSel() {
+  const p = selectedPart();
+  const node = p ? nodeById.get(p.id) : null;
+  if (!p || !node) {
+    selBox.visible = false;
+    gizmo.visible = false;
+    partGuide.visible = false;
+    ghostMesh.visible = false;
+    el.selTag.style.display = "none";
+    return;
+  }
+  selBox.visible = true;
+  selBox.setFromObject(node.mesh);
+  gizmo.visible = true;
+  gizmo.position.fromArray(p.pos);
+  updateGizmoScale();
+
+  const [x, y, z] = p.pos;
+  partGuide.visible = show.part;
+  if (show.part) {
+    setLine(gDrop, V(x, 0, z), V(x, y, z));                    // how high off the floor it is
+    setLine(gCrossX, V(x - 0.3, 0.003, z), V(x + 0.3, 0.003, z));
+    setLine(gCrossZ, V(x, 0.003, z - 0.3), V(x, 0.003, z + 0.3));
+    setLine(gRailX, V(-6, y, z), V(6, y, z));                  // same height + depth
+    setLine(gRailZ, V(x, y, -6), V(x, y, 6));                  // same height + side
+  }
+
+  // mirrored twin preview (exactly what the Mirror button would create)
+  if (show.mirror && Math.abs(x) > 0.015) {
+    ghostMesh.geometry = node.mesh.geometry;
+    ghostMesh.visible = true;
+    ghostMesh.position.set(-x, y, z);
+    ghostMesh.rotation.set(p.rot[0], -p.rot[1], -p.rot[2]);
+    ghostMesh.scale.fromArray(p.scale);
+  } else {
+    ghostMesh.visible = false;
+  }
+
+  const sym = symmetryInfo(p);
+  el.selTag.style.display = "";
+  el.selTag.innerHTML =
+    "<b>" + esc(p.name) + "</b> &nbsp;x " + x.toFixed(2) + " · y " + y.toFixed(2) + " · z " + z.toFixed(2) +
+    "<span class='sym " + (sym.ok ? "ok" : "off") + "'>" + sym.txt + "</span>";
+}
+
+/* is this part on the centre line, or does it have a twin on the other side? */
+function symmetryInfo(p) {
+  const t = 0.02;
+  if (Math.abs(p.pos[0]) <= 0.005) return { ok: true, txt: "◎ on the centre line" };
+  const m = parts.find((q) => q.id !== p.id &&
+    Math.abs(q.pos[0] + p.pos[0]) <= t &&
+    Math.abs(q.pos[1] - p.pos[1]) <= t &&
+    Math.abs(q.pos[2] - p.pos[2]) <= t);
+  return m ? { ok: true, txt: "⇋ mirrors “" + esc(m.name) + "”" }
+           : { ok: false, txt: "⇋ nothing at x " + (-p.pos[0]).toFixed(2) };
+}
+
+function applyShow() {
+  axisGroup.visible = show.axes;
+  symGroup.visible = show.sym;
+  grid.visible = show.grid;
+  disc.visible = show.grid;
+  refreshSel();
 }
 
 function hexStr(n) { return "#" + n.toString(16).padStart(6, "0"); }
@@ -4976,7 +5354,7 @@ for (const key of ["px", "py", "pz"]) {
     p.pos[key === "px" ? 0 : key === "py" ? 1 : 2] = parseFloat(sliders[key].value);
     applyToNode(p.id);
     $(key + "v").textContent = p.pos[key === "px" ? 0 : key === "py" ? 1 : 2].toFixed(2);
-    if (selHelper && nodeById.get(p.id)) { selHelper.setFromObject(nodeById.get(p.id).mesh); }
+    refreshSel();
     scheduleSave();
   });
 }
@@ -4986,7 +5364,7 @@ for (const key of ["rx", "ry", "rz"]) {
     p.rot[key === "rx" ? 0 : key === "ry" ? 1 : 2] = THREE.MathUtils.degToRad(parseFloat(sliders[key].value));
     applyToNode(p.id);
     $(key + "v").textContent = Math.round(parseFloat(sliders[key].value)) + "°";
-    if (selHelper && nodeById.get(p.id)) selHelper.setFromObject(nodeById.get(p.id).mesh);
+    refreshSel();
     scheduleSave();
   });
 }
@@ -4996,7 +5374,7 @@ sliders.sc.addEventListener("input", () => {
   p.scale = [s, s, s];
   applyToNode(p.id);
   $("scv").textContent = s.toFixed(2) + "×";
-  if (selHelper && nodeById.get(p.id)) selHelper.setFromObject(nodeById.get(p.id).mesh);
+  refreshSel();
   scheduleSave();
 });
 for (const [key, field] of [["hLen", "len"], ["hW", "w"], ["hH", "h"], ["hTaper", "taper"]]) {
@@ -5049,8 +5427,42 @@ function duplicateSelected() {
   scheduleSave();
 }
 
+/* ---------------- symmetry + alignment actions ---------------- */
+function mirrorName(n) {
+  if (/left/i.test(n)) return n.replace(/left/i, (m) => (m[0] === "L" ? "Right" : "right"));
+  if (/right/i.test(n)) return n.replace(/right/i, (m) => (m[0] === "R" ? "Left" : "left"));
+  return n + " (mirror)";
+}
+/** Reflect the selection across the x = 0 centre line as a new part. */
+function mirrorSelected() {
+  const p = selectedPart(); if (!p) return;
+  const c = JSON.parse(JSON.stringify(p));
+  c.id = uid();
+  c.name = mirrorName(p.name);
+  c.pos = [-p.pos[0], p.pos[1], p.pos[2]];
+  c.rot = [p.rot[0], -p.rot[1], -p.rot[2]];
+  parts.push(c);
+  addNode(c);
+  select(c.id);
+  updateHUD();
+  scheduleSave();
+}
+/** Park the selection exactly on the centre line. */
+function centreSelected() { setPos(0, 0, true); }
+/** Drop the selection until it just rests on the ground. */
+function groundSelected() {
+  const p = selectedPart(); if (!p) return;
+  const node = nodeById.get(p.id); if (!node) return;
+  node.mesh.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(node.mesh);
+  if (!box.isEmpty()) setPos(1, p.pos[1] - box.min.y, true);
+}
+
 el.dup.addEventListener("click", duplicateSelected);
 el.del.addEventListener("click", () => { if (selectedId) removePart(selectedId); });
+$("mirrorBtn").addEventListener("click", mirrorSelected);
+$("centreBtn").addEventListener("click", centreSelected);
+$("groundBtn").addEventListener("click", groundSelected);
 el.clear.addEventListener("click", () => {
   if (!parts.length) return;
   if (confirm("Remove all " + parts.length + " parts from this model?")) {
@@ -5087,18 +5499,68 @@ function pickPart() {
   }
   return null;
 }
+function pickGizmo() {
+  if (!gizmo.visible) return null;
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(gizmo.children, true);
+  for (const h of hits) if (h.object.userData.gizmoAxis) return h.object.userData.gizmoAxis;
+  return null;
+}
+
+/* ---- movement limits + snapping (x, y, z) ---- */
+const LIMIT = [[-5, 5], [-2, 5], [-5, 5]];
+function snapAxis(i, v) {
+  let out = snapStep > 0 ? Math.round(v / snapStep) * snapStep : v;
+  if (i === 0 && snapCentre && Math.abs(out) < Math.max(0.045, snapStep * 0.9)) out = 0;  // magnet to x = 0
+  return THREE.MathUtils.clamp(Math.round(out * 1000) / 1000, LIMIT[i][0], LIMIT[i][1]);
+}
+function setPos(i, v, save) {
+  const p = selectedPart(); if (!p) return;
+  p.pos[i] = THREE.MathUtils.clamp(Math.round(v * 1000) / 1000, LIMIT[i][0], LIMIT[i][1]);
+  applyToNode(p.id);
+  fillSliders(p);
+  refreshSel();
+  if (save) scheduleSave();
+}
+/* how far along a world axis the mouse ray passes closest to it */
+function axisParam(axis, origin) {
+  const d1 = AXIS_DIR[axis], rd = raycaster.ray.direction;
+  const r = new THREE.Vector3().subVectors(origin, raycaster.ray.origin);
+  const b = d1.dot(rd), denom = 1 - b * b;
+  if (Math.abs(denom) < 1e-6) return null;   // looking straight down the axis
+  return (b * rd.dot(r) - d1.dot(r)) / denom;
+}
 
 let drag = null;
 const canvas = renderer.domElement;
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+/* drag the part along one axis — this is what lets a part go up and down */
+function startAxisDrag(axis) {
+  const p = selectedPart(); if (!p) return false;
+  raycaster.setFromCamera(ndc, camera);
+  const base = new THREE.Vector3().fromArray(p.pos);
+  const t0 = axisParam(axis, base);
+  if (t0 === null) return false;
+  drag = { mode: "axis", axis, id: p.id, base: p.pos.slice(), baseVec: base, t0, moved: false };
+  setGizmoHighlight(axis);
+  canvas.style.cursor = "grabbing";
+  return true;
+}
+
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   setNdc(ev);
+  if (ev.button === 0) {
+    const ax = pickGizmo();                       // the arrows take priority
+    if (ax && startAxisDrag(ax)) return;
+  }
   const hit = pickPart();
   if (hit && ev.button === 0) {
     const id = hit.object.userData.partId;
     select(id);
     const p = selectedPart();
+    if (ev.shiftKey && startAxisDrag("y")) return;   // shift-drag a part = move it up / down
     drag = {
       mode: "part", id,
       plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -p.pos[1]),
@@ -5115,7 +5577,9 @@ canvas.addEventListener("pointerdown", (ev) => {
 canvas.addEventListener("pointermove", (ev) => {
   if (!drag) {
     setNdc(ev);
-    canvas.style.cursor = pickPart() ? "grab" : "default";
+    const ax = pickGizmo();
+    setGizmoHighlight(ax);
+    canvas.style.cursor = ax ? "move" : (pickPart() ? "grab" : "default");
     return;
   }
   setNdc(ev);
@@ -5130,6 +5594,20 @@ canvas.addEventListener("pointermove", (ev) => {
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
     orbit.target.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
     applyCamera();
+  } else if (drag.mode === "axis") {
+    // sliding along one axis: x / z across the floor, y straight up and down
+    raycaster.setFromCamera(ndc, camera);
+    const t = axisParam(drag.axis, drag.baseVec);
+    if (t === null) return;
+    const p = parts.find((q) => q.id === drag.id);
+    if (!p) return;
+    const i = drag.axis === "x" ? 0 : drag.axis === "y" ? 1 : 2;
+    drag.moved = true;
+    canvas.style.cursor = "grabbing";
+    p.pos[i] = snapAxis(i, drag.base[i] + (t - drag.t0));
+    applyToNode(p.id);
+    fillSliders(p);
+    refreshSel();
   } else if (drag.mode === "part") {
     drag.moved = true;
     canvas.style.cursor = "grabbing";
@@ -5138,18 +5616,19 @@ canvas.addEventListener("pointermove", (ev) => {
     if (raycaster.ray.intersectPlane(drag.plane, hitPt)) {
       const p = parts.find((q) => q.id === drag.id);
       if (p) {
-        p.pos[0] = THREE.MathUtils.clamp(hitPt.x - drag.offset.x, -5, 5);
-        p.pos[2] = THREE.MathUtils.clamp(hitPt.z - drag.offset.z, -5, 5);
+        p.pos[0] = snapAxis(0, hitPt.x - drag.offset.x);
+        p.pos[2] = snapAxis(2, hitPt.z - drag.offset.z);
         applyToNode(p.id);
         fillSliders(p);
-        if (selHelper && nodeById.get(p.id)) selHelper.setFromObject(nodeById.get(p.id).mesh);
+        refreshSel();
       }
     }
   }
 });
 canvas.addEventListener("pointerup", (ev) => {
-  if (drag && drag.mode === "part" && drag.moved) scheduleSave();
+  if (drag && (drag.mode === "part" || drag.mode === "axis") && drag.moved) scheduleSave();
   drag = null;
+  setGizmoHighlight(null);
   canvas.style.cursor = "default";
 });
 canvas.addEventListener("wheel", (ev) => {
@@ -5158,11 +5637,36 @@ canvas.addEventListener("wheel", (ev) => {
   applyCamera();
 }, { passive: false });
 
+/* keyboard: nudge the selection (arrows + height), jump to a view */
+const NUDGE = {
+  ArrowLeft: [0, -1], ArrowRight: [0, 1],
+  ArrowUp: [2, -1], ArrowDown: [2, 1],
+  PageUp: [1, 1], PageDown: [1, -1],
+};
+const VIEW_KEYS = { 1: "front", 2: "back", 3: "left", 4: "right", 5: "top", 6: "iso" };
 window.addEventListener("keydown", (ev) => {
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT" || ev.target.tagName === "TEXTAREA") return;
   if (ev.key === "Escape") select(null);
   if ((ev.key === "Delete" || ev.key === "Backspace") && selectedId) { ev.preventDefault(); removePart(selectedId); }
   if ((ev.key === "d" || ev.key === "D") && (ev.ctrlKey || ev.metaKey) && selectedId) { ev.preventDefault(); duplicateSelected(); }
+  if (ev.ctrlKey || ev.metaKey) return;
+
+  const n = NUDGE[ev.key];
+  if (n && selectedId) {
+    ev.preventDefault();
+    const p = selectedPart();
+    const step = (ev.altKey ? 0.01 : (snapStep || 0.05));
+    // shift + up/down raises and lowers the part instead of moving it back/forth
+    const axis = (ev.shiftKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) ? 1 : n[0];
+    const dir = (axis === 1 && n[0] === 2) ? -n[1] : n[1];
+    setPos(axis, p.pos[axis] + dir * step, true);
+    return;
+  }
+  if (VIEW_KEYS[ev.key]) { setView(VIEW_KEYS[ev.key]); return; }
+  if (ev.key === "f" || ev.key === "F") { fitView(); return; }
+  if (ev.key === "o" || ev.key === "O") { setProjection("ortho"); return; }
+  if (ev.key === "p" || ev.key === "P") { setProjection("persp"); return; }
+  if ((ev.key === "m" || ev.key === "M") && selectedId) { mirrorSelected(); return; }
 });
 
 /* ---------------- library cards: mini previews + drag to place ---------------- */
@@ -5477,8 +5981,52 @@ el.dlBtn.addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 });
 
+/* ---------------- view + guide controls ---------------- */
+const LS_VIEW = "forge.view.v1";
+function saveViewPrefs() {
+  try { localStorage.setItem(LS_VIEW, JSON.stringify({ show, snapStep, snapCentre, projection })); } catch {}
+}
+function loadViewPrefs() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS_VIEW) || "null");
+    if (!v) return;
+    if (v.show) Object.assign(show, v.show);
+    if (typeof v.snapStep === "number") snapStep = v.snapStep;
+    if (typeof v.snapCentre === "boolean") snapCentre = v.snapCentre;
+    if (v.projection === "persp" || v.projection === "ortho") projection = v.projection;
+  } catch {}
+}
+function wireViewUI() {
+  for (const [id, key] of [["gAxes", "axes"], ["gSym", "sym"], ["gPart", "part"], ["gMirror", "mirror"], ["gGrid", "grid"]]) {
+    const c = $(id);
+    c.checked = show[key];
+    c.addEventListener("change", () => { show[key] = c.checked; applyShow(); saveViewPrefs(); });
+  }
+  const snapSel = $("snapSel");
+  snapSel.value = String(snapStep);
+  if (!snapSel.value) snapSel.value = "0";
+  snapStep = parseFloat(snapSel.value) || 0;
+  snapSel.addEventListener("change", () => { snapStep = parseFloat(snapSel.value) || 0; saveViewPrefs(); });
+  const sc = $("snapCentre");
+  sc.checked = snapCentre;
+  sc.addEventListener("change", () => { snapCentre = sc.checked; saveViewPrefs(); });
+
+  for (const [id, v] of [["vFront", "front"], ["vBack", "back"], ["vLeft", "left"], ["vRight", "right"], ["vTop", "top"], ["vIso", "iso"]]) {
+    $(id).addEventListener("click", () => setView(v));
+  }
+  $("vFit").addEventListener("click", fitView);
+  $("zoomIn").addEventListener("click", () => zoomBy(1 / 1.25));
+  $("zoomOut").addEventListener("click", () => zoomBy(1.25));
+  $("projOrtho").addEventListener("click", () => setProjection("ortho"));
+  $("projPersp").addEventListener("click", () => setProjection("persp"));
+}
+
 /* ---------------- boot ---------------- */
 function boot() {
+  loadViewPrefs();
+  wireViewUI();
+  applyShow();
+  setProjection(projection);
   // stock list
   for (const key of Object.keys(STOCK)) {
     const o = document.createElement("option");
@@ -5505,8 +6053,10 @@ function boot() {
   applyCamera();
   scheduleSave();
 
-  (function frame() {
+  (function frame(now) {
     requestAnimationFrame(frame);
+    stepTween(now || performance.now());
+    updateGizmoScale();
     renderer.render(scene, camera);
   })();
 }
