@@ -251,7 +251,7 @@
         <span class="dc">◧ <b id="stDC">0</b><br><span class="sub">draw calls <span id="stBaked">(1 baked)</span></span></span>
         <span class="pt"> <b id="stParts">0</b><br><span class="sub">parts</span></span>
       </div>
-      <div id="hudHint">Drag parts here · drag selected parts horizontally or vertically · yellow lines mark the origin · right-drag to pan</div>
+      <div id="hudHint">Drag a part to slide it on the floor · <b>Shift</b> + drag — or drag the orange <b>▲</b> above the selected part — raises / lowers it · arrow keys nudge (Shift + ↑ ↓ = up / down) · right-drag to pan</div>
     </div>
     <div id="selectedTag" style="display:none"></div>
   </main>
@@ -4859,6 +4859,42 @@ scene.add(partRoot);
 const nodeById = new Map(); // id -> { mesh, mat }
 let selHelper = null;
 
+/* ---------- vertical (up / down) move handle ----------
+   Raising a part is an explicit gesture in every modelling app: Tinkercad puts
+   a cone above the selection, Blender has the blue Z arrow, SketchUp uses the
+   ↑ / ↓ axis-lock keys. The selected part therefore gets an orange ▲ cone that
+   can be dragged up and down; Shift-dragging the part itself does the same. */
+const yHandle = new THREE.Group();
+yHandle.visible = false;
+scene.add(yHandle);
+const yHandleMat = new THREE.MeshStandardMaterial({
+  color: 0xffb703, emissive: 0xa27000, emissiveIntensity: 0.55, roughness: 0.45, metalness: 0.05,
+});
+const yHandleGrip = new THREE.Mesh( // invisible, just a fat pointer target
+  new THREE.CylinderGeometry(0.14, 0.14, 0.64, 12),
+  new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }),
+);
+{
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.3, 10), yHandleMat);
+  stem.position.y = 0.15;
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.078, 0.2, 16), yHandleMat);
+  cone.position.y = 0.4;
+  yHandleGrip.position.y = 0.32;
+  yHandle.add(stem, cone, yHandleGrip);
+}
+function updateYHandle() {
+  const p = selectedPart();
+  const node = p ? nodeById.get(p.id) : null;
+  if (!p || !node) { yHandle.visible = false; return; }
+  node.mesh.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(node.mesh);
+  const size = box.getSize(new THREE.Vector3());
+  const s = THREE.MathUtils.clamp(Math.max(size.x, size.y, size.z) * 1.15, 0.5, 2.4);
+  yHandle.scale.setScalar(s);
+  yHandle.position.set(p.pos[0], box.max.y + 0.03 * s, p.pos[2]);
+  yHandle.visible = true;
+}
+
 function makeMaterial(color) {
   return new THREE.MeshStandardMaterial({
     color, roughness: 0.9, metalness: 0, flatShading: true,
@@ -4877,6 +4913,7 @@ function applyToNode(id) {
   node.mesh.rotation.fromArray(p.rot);
   node.mesh.scale.fromArray(p.scale);
   node.mat.color.setHex(p.color);
+  updateYHandle();
 }
 function addNode(p) {
   const mesh = new THREE.Mesh(buildGeometry(p), makeMaterial(p.color));
@@ -4906,6 +4943,7 @@ function updateHullGeometry(p) {
   node.mesh.geometry.dispose();
   node.mesh.geometry = g;
   if (selHelper) { selHelper.setFromObject(node.mesh); selHelper.visible = true; }
+  updateYHandle();
 }
 
 function resize() {
@@ -4949,14 +4987,20 @@ function select(id) {
     setColorUI(p.color);
     fillSliders(p);
     el.selTag.style.display = "";
-    el.selTag.innerHTML = "Selected: <b>" + p.name + "</b> · drag it in the view, or use the sliders";
+    el.selTag.innerHTML = selTagText(p);
   } else {
     el.tEmpty.style.display = "";
     el.tPanel.style.display = "none";
     el.colorTarget.textContent = "Select a part in the 3D view first.";
     el.selTag.style.display = "none";
   }
+  updateYHandle();
   updateHUD();
+}
+
+function selTagText(p) {
+  const n = (v) => (v < 0 ? "" : " ") + v.toFixed(2);
+  return "Selected: <b>" + p.name + "</b> · X" + n(p.pos[0]) + " · Y" + n(p.pos[1]) + " · Z" + n(p.pos[2]);
 }
 
 function hexStr(n) { return "#" + n.toString(16).padStart(6, "0"); }
@@ -5102,70 +5146,178 @@ function pickPart() {
   return null;
 }
 
+/* Drag rules — the behaviour every modelling app uses:
+   · click a part             → just selects it, nothing moves
+   · drag a part              → slides it along the floor plane
+   · Shift + drag a part      → locks the move to the vertical axis (raise / lower)
+   · drag the orange ▲ handle → raise / lower (Tinkercad's cone handle, Blender's Z arrow)
+   Movement only begins after the pointer travels DRAG_THRESHOLD pixels, so a plain
+   click or a shaky tap can never nudge a part. */
+const DRAG_THRESHOLD = 4;                      // px of travel before a click becomes a drag
+const XZ_LIMIT = 5;                            // matches the X / Z sliders
+const Y_MIN = parseFloat(sliders.py.min) || 0; // matches the Y slider
+const Y_MAX = parseFloat(sliders.py.max) || 5;
+const UP = new THREE.Vector3(0, 1, 0);
+
 let drag = null;
 const canvas = renderer.domElement;
+
+function partById(id) { return parts.find((q) => q.id === id) || null; }
+function groundPlaneFor(p) {
+  return new THREE.Plane().setFromNormalAndCoplanarPoint(UP.clone(), new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]));
+}
+function pickYHandle() {
+  if (!yHandle.visible) return false;
+  raycaster.setFromCamera(ndc, camera);
+  return raycaster.intersectObjects(yHandle.children, false).length > 0;
+}
+
+/* Screen-space direction (px) of one world unit along an axis. Axis-locked
+   dragging is solved in screen space, so vertical moves stay stable at any
+   camera tilt (a plane intersection breaks when you look straight down). */
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
+function axisScreenVec(origin, dir) {
+  camera.updateMatrixWorld();
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+  const r = canvas.getBoundingClientRect();
+  _pa.copy(origin).project(camera);
+  const ax = (_pa.x * 0.5 + 0.5) * r.width, ay = (-_pa.y * 0.5 + 0.5) * r.height;
+  _pb.copy(origin).add(dir).project(camera);
+  const bx = (_pb.x * 0.5 + 0.5) * r.width, by = (-_pb.y * 0.5 + 0.5) * r.height;
+  return { x: bx - ax, y: by - ay };
+}
+function verticalRef(p) {
+  const o = new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]);
+  let v = axisScreenVec(o, UP);
+  let len2 = v.x * v.x + v.y * v.y;
+  if (len2 < 25) {
+    // camera almost straight down — use a horizontal axis as the pixel scale
+    const hx = axisScreenVec(o, new THREE.Vector3(1, 0, 0));
+    const hz = axisScreenVec(o, new THREE.Vector3(0, 0, 1));
+    const h = (hx.x * hx.x + hx.y * hx.y) > (hz.x * hz.x + hz.y * hz.y) ? hx : hz;
+    const l = Math.sqrt(Math.max(1, h.x * h.x + h.y * h.y));
+    v = { x: 0, y: -l };
+    len2 = l * l;
+  }
+  return { x: v.x, y: v.y, len2 };
+}
+
+function refreshPartVisuals(p) {
+  applyToNode(p.id);
+  fillSliders(p);
+  const node = nodeById.get(p.id);
+  if (selHelper && node) selHelper.setFromObject(node.mesh);
+  updateYHandle();
+  el.selTag.innerHTML = selTagText(p);
+}
+
+function rebaseDrag(ev, vertical) {   // re-anchor the gesture at the current pointer + part state
+  const p = partById(drag.id);
+  drag.vertical = vertical;
+  drag.startX = ev.clientX;
+  drag.startY = ev.clientY;
+  drag.offset = null;
+  if (p) {
+    drag.baseY = p.pos[1];
+    drag.plane = groundPlaneFor(p);
+    drag.vref = verticalRef(p);
+    if (!vertical) {
+      // remember where the pointer meets the floor plane, so the part keeps
+      // following the pointer 1:1 (and never jumps when the drag starts)
+      raycaster.setFromCamera(ndc, camera);
+      const start = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(drag.plane, start)) {
+        drag.offset = start.sub(new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]));
+      }
+    }
+  }
+}
+
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   setNdc(ev);
-  const hit = pickPart();
-  if (hit && ev.button === 0) {
+  const base = { startX: ev.clientX, startY: ev.clientY, moved: false, vertical: false, offset: null, baseY: 0, plane: null, vref: null };
+  if (ev.button === 0 && pickYHandle()) {           // grabbed the ▲ handle: always vertical
+    const p = selectedPart();
+    if (p) {
+      drag = Object.assign(base, { mode: "part", id: p.id, handle: true });
+      rebaseDrag(ev, true);
+      return;
+    }
+  }
+  const hit = ev.button === 0 ? pickPart() : null;
+  if (hit) {                                        // grabbed a part: select, then (maybe) move it
     const id = hit.object.userData.partId;
     select(id);
-    const p = selectedPart();
-    drag = {
-      mode: "part", id,
-      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), new THREE.Vector3().fromArray(p.pos)),
-      offset: hit.point.clone().sub(new THREE.Vector3().fromArray(p.pos)),
-      moved: false,
-    };
+    drag = Object.assign(base, { mode: "part", id, handle: false });
+    rebaseDrag(ev, ev.shiftKey);                    // Shift starts it locked to the vertical axis
   } else if (ev.button === 0) {
-    drag = { mode: "orbit" };
-    select(null);
+    drag = Object.assign(base, { mode: "orbit" });
   } else {
-    drag = { mode: "pan" };
+    drag = Object.assign(base, { mode: "pan" });
   }
 });
+
 canvas.addEventListener("pointermove", (ev) => {
   if (!drag) {
     setNdc(ev);
-    canvas.style.cursor = pickPart() ? "grab" : "default";
+    canvas.style.cursor = pickYHandle() ? "ns-resize" : (pickPart() ? "grab" : "default");
     return;
   }
+  if (!drag.moved) {
+    if (Math.hypot(ev.clientX - drag.startX, ev.clientY - drag.startY) < DRAG_THRESHOLD) return; // still a click
+    drag.moved = true;
+    canvas.style.cursor = drag.mode === "part" && drag.vertical ? "ns-resize" : "grabbing";
+  }
   setNdc(ev);
-  const dx = ev.movementX, dy = ev.movementY;
+  const mx = ev.movementX, my = ev.movementY;
+
   if (drag.mode === "orbit") {
-    orbit.theta -= dx * 0.006;
-    orbit.phi = THREE.MathUtils.clamp(orbit.phi - dy * 0.006, 0.08, Math.PI - 0.08);
+    orbit.theta -= mx * 0.006;
+    orbit.phi = THREE.MathUtils.clamp(orbit.phi - my * 0.006, 0.08, Math.PI - 0.08);
     applyCamera();
-  } else if (drag.mode === "pan") {
+    return;
+  }
+  if (drag.mode === "pan") {
     const s = orbit.radius * 0.0016;
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
-    orbit.target.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
+    orbit.target.addScaledVector(right, -mx * s).addScaledVector(up, my * s);
     applyCamera();
-  } else if (drag.mode === "part") {
-    drag.moved = true;
-    canvas.style.cursor = "grabbing";
+    return;
+  }
+
+  const p = partById(drag.id);
+  if (!p) return;
+  if (!drag.handle && ev.shiftKey !== drag.vertical) {   // Shift toggles slide ⇄ raise mid-drag
+    rebaseDrag(ev, ev.shiftKey);
+    canvas.style.cursor = drag.vertical ? "ns-resize" : "grabbing";
+  }
+  const dx = ev.clientX - drag.startX, dy = ev.clientY - drag.startY;
+  if (drag.vertical) {
+    const d = drag.vref;
+    const world = (dx * d.x + dy * d.y) / d.len2;        // pointer travel projected onto the Y axis
+    p.pos[1] = THREE.MathUtils.clamp(drag.baseY + world, Y_MIN, Y_MAX);
+  } else {
     raycaster.setFromCamera(ndc, camera);
     const hitPt = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(drag.plane, hitPt)) {
-      const p = parts.find((q) => q.id === drag.id);
-      if (p) {
-        p.pos[0] = THREE.MathUtils.clamp(hitPt.x - drag.offset.x, -5, 5);
-        p.pos[2] = THREE.MathUtils.clamp(hitPt.z - drag.offset.z, -5, 5);
-        applyToNode(p.id);
-        fillSliders(p);
-        if (selHelper && nodeById.get(p.id)) selHelper.setFromObject(nodeById.get(p.id).mesh);
-      }
+      if (!drag.offset) drag.offset = hitPt.clone().sub(new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]));
+      p.pos[0] = THREE.MathUtils.clamp(hitPt.x - drag.offset.x, -XZ_LIMIT, XZ_LIMIT);
+      p.pos[2] = THREE.MathUtils.clamp(hitPt.z - drag.offset.z, -XZ_LIMIT, XZ_LIMIT);
     }
   }
+  refreshPartVisuals(p);
 });
-canvas.addEventListener("pointerup", (ev) => {
+
+canvas.addEventListener("pointerup", () => {
   if (drag && drag.mode === "part" && drag.moved) scheduleSave();
+  if (drag && drag.mode === "orbit" && !drag.moved) select(null);  // a real click on empty space clears the selection
   drag = null;
   canvas.style.cursor = "default";
 });
+canvas.addEventListener("pointercancel", () => { drag = null; canvas.style.cursor = "default"; });
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   // Keep camera distance stable while adjusting the view; wheel no longer changes model scale.
@@ -5178,6 +5330,30 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") select(null);
   if ((ev.key === "Delete" || ev.key === "Backspace") && selectedId) { ev.preventDefault(); removePart(selectedId); }
   if ((ev.key === "d" || ev.key === "D") && (ev.ctrlKey || ev.metaKey) && selectedId) { ev.preventDefault(); duplicateSelected(); }
+
+  /* Arrow keys nudge the selected part (Tinkercad does the same):
+     ← → slide sideways, ↑ ↓ slide away / towards the camera,
+     Shift (or ⌘ / Ctrl) + ↑ ↓ raise and lower it. */
+  const p = selectedPart();
+  if (!p || !ev.key.startsWith("Arrow")) return;
+  const step = 0.1;
+  const vertical = ev.shiftKey || ev.ctrlKey || ev.metaKey;
+  const dUp = ev.key === "ArrowUp" ? step : ev.key === "ArrowDown" ? -step : 0;
+  const dRight = ev.key === "ArrowRight" ? step : ev.key === "ArrowLeft" ? -step : 0;
+  if (!dUp && !dRight) return;
+  ev.preventDefault();
+  if (vertical) {
+    if (dUp) p.pos[1] = THREE.MathUtils.clamp(p.pos[1] + dUp, Y_MIN, Y_MAX);
+  } else {
+    const fwd = camera.getWorldDirection(new THREE.Vector3());
+    fwd.y = 0;
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); else fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, UP).normalize();
+    p.pos[0] = THREE.MathUtils.clamp(p.pos[0] + fwd.x * dUp + right.x * dRight, -XZ_LIMIT, XZ_LIMIT);
+    p.pos[2] = THREE.MathUtils.clamp(p.pos[2] + fwd.z * dUp + right.z * dRight, -XZ_LIMIT, XZ_LIMIT);
+  }
+  refreshPartVisuals(p);
+  scheduleSave();
 });
 
 /* ---------------- library cards: mini previews + drag to place ---------------- */
